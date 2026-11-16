@@ -21,13 +21,17 @@ BASE_PALETTE = {
     "07_Safety_Yellow": ((235, 185, 20, 1.0), 0.0, 0.35),
     "08_Tire_Rubber": ((30, 30, 32, 1.0), 0.0, 0.85),
     "09_Wood_Brown": ((115, 70, 40, 1.0), 0.0, 0.70),
-    "10_Canopy_Glass": ((140, 195, 225, 0.45), 0.10, 0.10),
+    # Opaque tinted & high-gloss canopy stand-in (hides hollow mesh interiors)
+    "10_Canopy_Glass_StandIn": ((35, 65, 90, 1.0), 0.20, 0.06),
 }
 
 # ==============================================================================
-# 2. 16-COLOR SPECTRUM (Rainbow + Half-Steps, Flat & Metallic)
+# 2. NEUTRALS & 16-COLOR SPECTRUM (18 Colors x 3 Finishes = 54 Materials)
+# Generates _Flat, _Gloss (non-metallic), and _Metallic for every entry.
 # ==============================================================================
 SPECTRUM_COLORS = [
+    ("White", (240, 240, 240)),
+    ("Black", (22, 22, 24)),
     ("Red", (235, 25, 25)),
     ("Red_Orange", (235, 95, 25)),
     ("Orange", (235, 160, 25)),
@@ -59,12 +63,23 @@ def build_full_palette_dict():
 
   for color_name, (r, g, b) in SPECTRUM_COLORS:
     rgba = (r, g, b, 1.0)
-    full_palette[f"{slot_num:02d}_{color_name}_Flat"] = (rgba, 0.0, 0.45)
+
+    # 1. Flat (matte non-metallic)
+    full_palette[f"{slot_num:02d}_{color_name}_Flat"] = (rgba, 0.0, 0.62)
     slot_num += 1
-    full_palette[f"{slot_num:02d}_{color_name}_Metallic"] = (rgba, 0.85, 0.25)
+
+    # 2. Gloss (high-shine non-metallic enamel/lacquer)
+    full_palette[f"{slot_num:02d}_{color_name}_Gloss"] = (rgba, 0.0, 0.08)
+    slot_num += 1
+
+    # 3. Metallic (reflective anodized/metal)
+    full_palette[f"{slot_num:02d}_{color_name}_Metallic"] = (rgba, 0.85, 0.22)
     slot_num += 1
 
   return full_palette
+
+
+TOTAL_PALETTE_COUNT = len(build_full_palette_dict())
 
 
 def srgb_to_linear(rgba):
@@ -94,8 +109,15 @@ def get_or_create_palette():
       bsdf.inputs["Roughness"].default_value = roughness
       bsdf.inputs["Alpha"].default_value = lin_color[3]
 
-    if rgba[3] < 1.0 and hasattr(mat, "blend_method"):
-      mat.blend_method = "BLEND"
+      # Boost specular sheen slightly on the opaque canopy glass stand-in
+      if name == "10_Canopy_Glass_StandIn":
+        if "Specular IOR Level" in bsdf.inputs:
+          bsdf.inputs["Specular IOR Level"].default_value = 0.90
+        elif "Specular" in bsdf.inputs:
+          bsdf.inputs["Specular"].default_value = 0.90
+
+    if hasattr(mat, "blend_method"):
+      mat.blend_method = "BLEND" if rgba[3] < 1.0 else "OPAQUE"
 
     materials.append(mat)
   return materials
@@ -147,12 +169,17 @@ def load_palette_into_scene():
 # ==============================================================================
 class MUSEUM_OT_load_palette(bpy.types.Operator):
   bl_idname = "museum.load_palette"
-  bl_label = "Load / Reload 42-Color Palette"
-  bl_description = "Loads all 42 museum materials and enters Face Select mode"
+  bl_label = f"Load / Reload {TOTAL_PALETTE_COUNT}-Color Palette"
+  bl_description = (
+      f"Loads all {TOTAL_PALETTE_COUNT} museum materials and enters Face Select"
+      " mode"
+  )
 
   def execute(self, context):
     if load_palette_into_scene():
-      self.report({"INFO"}, "Loaded 42 museum palette materials.")
+      self.report(
+          {"INFO"}, f"Loaded {TOTAL_PALETTE_COUNT} museum palette materials."
+      )
       return {"FINISHED"}
     self.report({"WARNING"}, "No mesh found in scene.")
     return {"CANCELLED"}
@@ -162,7 +189,8 @@ class MUSEUM_OT_export_glb(bpy.types.Operator):
   bl_idname = "museum.export_glb"
   bl_label = "Export Painted .GLB to Batch Folder"
   bl_description = (
-      "Removes unused material slots and saves a .glb directly to your batch folder"
+      "Removes unused material slots and saves a .glb directly to your batch"
+      " folder"
   )
 
   def execute(self, context):
@@ -234,7 +262,10 @@ def register():
 
   bpy.types.Scene.ar_museum_export_name = bpy.props.StringProperty(
       name="Filename",
-      description="Output .glb filename (spaces are automatically converted to underscores)",
+      description=(
+          "Output .glb filename (spaces are automatically converted to"
+          " underscores)"
+      ),
       default="Painted_Model",
   )
 
